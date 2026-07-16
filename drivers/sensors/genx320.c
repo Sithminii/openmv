@@ -305,6 +305,49 @@ static int disable_hot_pixels(omv_csi_t *csi, uint8_t *histogram, float sigma) {
     return ret;
 }
 
+static int set_roi_window(omv_csi_t *csi, int rx, int ry, int rw, int rh) {
+    int x0 = rx, x1 = rx + rw;
+    int y0 = ry, y1 = ry + rh;
+    int disabled = 0;
+
+    if ((rw <= 0) || (rh <= 0) || (x0 < 0) || (y0 < 0) ||
+        (x1 > ACTIVE_SENSOR_WIDTH) || (y1 > ACTIVE_SENSOR_HEIGHT)) {
+        return -1;
+    }
+
+    for (uint32_t y = 0; y < ACTIVE_SENSOR_HEIGHT; y++) {
+        for (uint32_t i = 0; i < (ACTIVE_SENSOR_WIDTH / UINT32_T_BITS); i++) {
+            psee_write_ROI_X(csi, i * sizeof(uint32_t), 0);
+        }
+
+        uint32_t offset = y / UINT32_T_BITS;
+        psee_write_ROI_Y(csi, offset * sizeof(uint32_t), 1 << (y % UINT32_T_BITS));
+
+        psee_write_ROI_CTRL(csi, ROI_CTRL_PX_SW_RSTN | ROI_CTRL_TD_SHADOW_TRIGGER);
+
+        uint32_t tmp[ACTIVE_SENSOR_WIDTH / UINT32_T_BITS] = {};
+        bool row_inside = ((y >= (uint32_t) y0) && (y < (uint32_t) y1));
+
+        for (uint32_t x = 0; x < ACTIVE_SENSOR_WIDTH; x++) {
+            bool inside = row_inside && (x >= (uint32_t) x0) && (x < (uint32_t) x1);
+            if (!inside) {
+                tmp[x / UINT32_T_BITS] |= 1 << (x % UINT32_T_BITS);
+                disabled += 1;
+            }
+        }
+
+        for (uint32_t i = 0; i < (ACTIVE_SENSOR_WIDTH / UINT32_T_BITS); i++) {
+            psee_write_ROI_X(csi, i * sizeof(uint32_t), tmp[i]);
+        }
+
+        psee_write_ROI_CTRL(csi, ROI_CTRL_PX_SW_RSTN | ROI_CTRL_TD_SHADOW_TRIGGER | ROI_CTRL_TD_EN);
+        psee_write_ROI_CTRL(csi, ROI_CTRL_PX_SW_RSTN);
+        psee_write_ROI_Y(csi, offset * sizeof(uint32_t), 0);
+    }
+
+    return disabled;
+}
+
 static int ioctl(omv_csi_t *csi, int request, va_list ap) {
     genx_state_t *genx = csi->priv;
     int ret = 0;
@@ -613,6 +656,16 @@ static int ioctl(omv_csi_t *csi, int request, va_list ap) {
             uma_free(histogram);
             break;
         }
+
+        case OMV_CSI_IOCTL_GENX320_SET_ROI: {
+            int x = va_arg(ap, int);
+            int y = va_arg(ap, int);
+            int w = va_arg(ap, int);
+            int h = va_arg(ap, int);
+            ret = set_roi_window(csi, x, y, w, h);
+            break;
+        }
+        
         default: {
             ret = -1;
             break;
