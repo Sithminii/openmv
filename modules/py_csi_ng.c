@@ -1256,6 +1256,32 @@ static mp_obj_t py_csi_ioctl(size_t n_args, const mp_obj_t *args) {
             }
             break;
         }
+
+        case OMV_CSI_IOCTL_GENX320_SET_ROI: {
+            if (n_args == 1) {
+                int x, y, w, h;
+                mp_obj_t *array;
+                mp_uint_t array_len;
+                mp_obj_get_array(args[0], &array_len, &array);
+
+                if (array_len == 4) {
+                    x = mp_obj_get_int(array[0]);
+                    y = mp_obj_get_int(array[1]);
+                    w = mp_obj_get_int(array[2]);
+                    h = mp_obj_get_int(array[3]);
+                } else {
+                    mp_raise_msg(&mp_type_ValueError,
+                                 MP_ERROR_TEXT("Expected an (x, y, w, h) tuple/list."));
+                }
+
+                error = omv_csi_ioctl(self->csi, request, x, y, w, h);
+                if (error > 0) {
+                    ret_obj = mp_obj_new_int(error);
+                }
+            }
+            break;
+        }
+        
         case OMV_CSI_IOCTL_GENX320_READ_EVENTS_RAW: {
             image_t img;
             error = omv_csi_ioctl(self->csi, request, &img);
